@@ -1,0 +1,13 @@
+config {
+  type: "table",
+  schema: "marts",
+  tags: ["daily"],
+  description: "Tiendas de los retailers (SCD1: se sobrescribe con el último snapshot). Grano: store_id.",
+  assertions: { uniqueKey: ["store_sk"], nonNull: ["store_id", "retailer_id"] }
+}
+
+SELECT FARM_FINGERPRINT(store_id) AS store_sk, store_id, retailer_id, retailer_name, city, state, store_format,
+       snapshot_date AS as_of_date
+FROM ${ref("stg_store_snapshot")}
+UNION ALL
+SELECT ${constants.UNKNOWN_SK}, "unknown", "unknown", "unknown", "unknown", "unknown", "unknown", NULL

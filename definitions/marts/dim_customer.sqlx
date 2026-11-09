@@ -1,0 +1,19 @@
+config {
+  type: "table",
+  schema: "marts",
+  tags: ["olist"],
+  description: "Clientes (SCD1: solo el estado actual). Grano: customer_unique_id. Incluye el miembro desconocido (-1).",
+  assertions: { uniqueKey: ["customer_sk"], nonNull: ["customer_sk", "customer_unique_id"] }
+}
+
+WITH ranked AS (
+  -- Un mismo cliente aparece con varios customer_id (uno por orden): tomamos su dirección más reciente.
+  SELECT c.customer_unique_id, c.city, c.state, c.zip_prefix,
+         ROW_NUMBER() OVER (PARTITION BY c.customer_unique_id ORDER BY o.purchased_at DESC) AS rn
+  FROM ${ref("stg_customers")} AS c
+  LEFT JOIN ${ref("stg_orders")} AS o USING (customer_id)
+)
+SELECT FARM_FINGERPRINT(customer_unique_id) AS customer_sk, customer_unique_id, city, state, zip_prefix
+FROM ranked WHERE rn = 1
+UNION ALL
+SELECT ${constants.UNKNOWN_SK}, "unknown", "unknown", "unknown", "unknown"

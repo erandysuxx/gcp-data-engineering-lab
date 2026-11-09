@@ -1,0 +1,111 @@
+# CI: corre en cada Pull Request. Nada se despliega aquí: solo se VALIDA.
+# Los pasos que necesitan GCP (dry-run de Dataform, terraform plan) se saltan si todavía no
+# configuraste WIF (lab07): así el repo sirve como template desde el día 1.
+name: ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # para pedir el token OIDC que se cambia por credenciales de GCP (WIF)
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: lint + tests (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [generator, pipelines/sellout_beam]
+    defaults:
+      run:
+        working-directory: ${{ matrix.component }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest -q
+
+  dags:
+    name: DAG integrity (Airflow 3.3.1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.11"
+      - run: orchestration/setup_venv.sh
+      - name: ruff
+        run: orchestration/.venv/bin/ruff check orchestration && orchestration/.venv/bin/ruff format --check orchestration
+      - name: pytest
+        working-directory: orchestration
+        env:
+          AIRFLOW_HOME: ${{ runner.temp }}/airflow
+        run: .venv/bin/python -m pytest -q tests
+
+  dataform:
+    name: Dataform compile (+ dry-run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: compile (no necesita credenciales)
+        run: npx --yes @dataform/cli@3.1.4 compile
+      - name: auth (WIF)
+        if: vars.WIF_PROVIDER != ''
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - name: dry-run contra BigQuery (valida SQL y permisos sin escribir nada)
+        if: vars.WIF_PROVIDER != ''
+        run: |
+          echo '{"projectId": "${{ vars.GCP_PROJECT_ID }}", "location": "${{ vars.GCP_REGION }}"}' > .df-credentials.json
+          npx --yes @dataform/cli@3.1.4 run --dry-run --tags olist --tags daily
+
+  terraform:
+    name: Terraform fmt / validate / plan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.17.1
+      - run: terraform fmt -check -recursive
+      - name: validate (sin backend)
+        run: terraform init -backend=false -input=false && terraform validate
+      - name: auth (WIF)
+        if: vars.WIF_PROVIDER != ''
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - name: plan
+        if: vars.WIF_PROVIDER != ''
+        run: |
+          terraform init -input=false -reconfigure -backend-config="bucket=${{ vars.TFSTATE_BUCKET }}"
+          terraform plan -input=false -lock-timeout=5m \
+            -var "project_id=${{ vars.GCP_PROJECT_ID }}" -var "region=${{ vars.GCP_REGION }}" \
+            -var "github_repo=${{ github.repository }}" -var "enable_composer=${{ vars.ENABLE_COMPOSER == 'true' }}"
+
+  actionlint:
+    name: actionlint (lint de estos workflows)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color

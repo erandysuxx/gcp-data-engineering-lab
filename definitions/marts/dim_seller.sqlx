@@ -1,0 +1,12 @@
+config {
+  type: "table",
+  schema: "marts",
+  tags: ["olist"],
+  description: "Vendedores (SCD1). Grano: seller. Incluye el miembro desconocido (-1).",
+  assertions: { uniqueKey: ["seller_sk"] }
+}
+
+SELECT FARM_FINGERPRINT(seller_id) AS seller_sk, seller_id, city, state, zip_prefix
+FROM ${ref("stg_sellers")}
+UNION ALL
+SELECT ${constants.UNKNOWN_SK}, "unknown", "unknown", "unknown", "unknown"

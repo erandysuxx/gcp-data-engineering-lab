@@ -1,0 +1,24 @@
+config {
+  type: "table",
+  schema: "marts",
+  tags: ["olist", "daily"],
+  description: "Dimensión calendario. Grano: un día. Incluye un calendario retail 4-4-5 simplificado.",
+  assertions: { uniqueKey: ["date_key"] }
+}
+
+SELECT
+  CAST(FORMAT_DATE("%Y%m%d", d) AS INT64) AS date_key,
+  d AS date,
+  EXTRACT(YEAR FROM d) AS year,
+  EXTRACT(QUARTER FROM d) AS quarter,
+  EXTRACT(MONTH FROM d) AS month,
+  FORMAT_DATE("%B", d) AS month_name,
+  EXTRACT(ISOWEEK FROM d) AS iso_week,
+  EXTRACT(DAYOFWEEK FROM d) AS day_of_week,       -- 1 = domingo
+  EXTRACT(DAYOFWEEK FROM d) IN (1, 7) AS is_weekend,
+  -- Calendario retail 4-4-5: cada trimestre = 13 semanas (4 + 4 + 5). Periodo 1..12.
+  DIV(EXTRACT(ISOWEEK FROM d) - 1, 13) * 3
+    + CASE WHEN MOD(EXTRACT(ISOWEEK FROM d) - 1, 13) < 4 THEN 1
+           WHEN MOD(EXTRACT(ISOWEEK FROM d) - 1, 13) < 8 THEN 2
+           ELSE 3 END AS retail_period_445
+FROM UNNEST(GENERATE_DATE_ARRAY("2016-01-01", "2027-12-31")) AS d

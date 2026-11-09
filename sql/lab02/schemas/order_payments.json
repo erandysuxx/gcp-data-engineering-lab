@@ -1,0 +1,27 @@
+[
+  {
+    "name": "order_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "payment_sequential",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "payment_type",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "payment_installments",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "payment_value",
+    "type": "NUMERIC",
+    "mode": "NULLABLE"
+  }
+]

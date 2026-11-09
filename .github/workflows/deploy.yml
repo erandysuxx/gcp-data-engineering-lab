@@ -1,0 +1,96 @@
+# CD: corre al hacer merge a main (o a mano). Despliega con la identidad sa-deployer vía WIF (sin llaves).
+# Orden: infraestructura (Terraform) → imágenes y jobs (generador, Flex Template) → DAGs (si Composer existe).
+# Nota: en repos privados de GitHub Free no hay "environments" con aprobación obligatoria; en una empresa,
+# este job iría detrás de un environment `production` con revisores (ver docs/10-cicd-terraform.md).
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false # nunca cortar un apply a la mitad
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  IMAGE_PREFIX: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/lab-images
+  TAG: ${{ github.sha }}
+
+jobs:
+  terraform:
+    if: vars.WIF_PROVIDER != ''
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    outputs:
+      dag_prefix: ${{ steps.out.outputs.dag_prefix }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+      - run: terraform init -input=false -backend-config="bucket=${{ vars.TFSTATE_BUCKET }}"
+      - name: apply
+        run: |
+          terraform apply -input=false -auto-approve -lock-timeout=5m \
+            -var "project_id=${PROJECT_ID}" -var "region=${REGION}" \
+            -var "github_repo=${{ github.repository }}" -var "enable_composer=${{ vars.ENABLE_COMPOSER == 'true' }}"
+      - id: out
+        run: echo "dag_prefix=$(terraform output -raw composer_dag_bucket)" >> "$GITHUB_OUTPUT"
+
+  images:
+    needs: terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+      - name: generador → imagen + Cloud Run Job
+        run: |
+          docker build -t "${IMAGE_PREFIX}/sellout-generator:${TAG}" generator
+          docker push "${IMAGE_PREFIX}/sellout-generator:${TAG}"
+          gcloud run jobs deploy sellout-generator --region "$REGION" \
+            --image "${IMAGE_PREFIX}/sellout-generator:${TAG}" \
+            --service-account "sa-generator@${PROJECT_ID}.iam.gserviceaccount.com" \
+            --set-env-vars "PRODUCTS_CSV=gs://${PROJECT_ID}-landing/olist/olist_products_dataset.csv,OUT_ROOT=gs://${PROJECT_ID}-landing" \
+            --tasks 1 --max-retries 1 --task-timeout 10m --labels pipeline=sellout_daily
+      - name: Beam → imagen + spec del Flex Template
+        run: |
+          docker build -t "${IMAGE_PREFIX}/sellout-beam:${TAG}" pipelines/sellout_beam
+          docker push "${IMAGE_PREFIX}/sellout-beam:${TAG}"
+          gcloud dataflow flex-template build "gs://${PROJECT_ID}-temp/templates/sellout_ingest.json" \
+            --image "${IMAGE_PREFIX}/sellout-beam:${TAG}" --sdk-language PYTHON \
+            --metadata-file pipelines/sellout_beam/metadata.json
+
+  dags:
+    needs: [terraform, images]
+    if: needs.terraform.outputs.dag_prefix != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: sync de DAGs al bucket de Composer
+        run: |
+          gcloud storage rsync orchestration/dags "${{ needs.terraform.outputs.dag_prefix }}" \
+            --recursive --delete-unmatched-destination-objects --exclude='.*__pycache__.*'

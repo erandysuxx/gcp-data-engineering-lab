@@ -1,0 +1,20 @@
+config {
+  type: "view",
+  tags: ["olist"],
+  description: "Ítems de cada orden. Grano: una fila por (order_id, order_item_id).",
+  assertions: {
+    uniqueKey: ["order_id", "order_item_id"],
+    nonNull: ["order_id", "product_id", "seller_id"],
+    rowConditions: ["price >= 0", "freight_value >= 0"]
+  }
+}
+
+SELECT
+  order_id,
+  order_item_id,
+  product_id,
+  seller_id,
+  shipping_limit_date,
+  CAST(price AS NUMERIC) AS price,
+  CAST(freight_value AS NUMERIC) AS freight_value
+FROM ${ref("raw_olist", "order_items")}

@@ -1,0 +1,17 @@
+config {
+  type: "assertion",
+  tags: ["olist", "daily"],
+  description: "SCD2 sano: cada producto tiene exactamente una versión vigente y las vigencias no se traslapan."
+}
+
+-- Una assertion FALLA si esta consulta devuelve filas.
+SELECT product_id, COUNTIF(is_current) AS current_versions
+FROM ${ref("dim_product")}
+GROUP BY product_id
+HAVING COUNTIF(is_current) != 1
+UNION ALL
+SELECT a.product_id, -1
+FROM ${ref("dim_product")} AS a
+JOIN ${ref("dim_product")} AS b
+  ON a.product_id = b.product_id AND a.product_sk < b.product_sk
+ AND a.valid_from <= b.valid_to AND b.valid_from <= a.valid_to

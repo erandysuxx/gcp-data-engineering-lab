@@ -1,0 +1,13 @@
+config {
+  type: "view",
+  tags: ["olist"],
+  description: "Clientes. En Olist customer_id cambia en cada orden; customer_unique_id identifica a la persona.",
+}
+
+SELECT
+  customer_id,
+  customer_unique_id,
+  customer_zip_code_prefix AS zip_prefix,   -- STRING: los ceros a la izquierda importan
+  customer_city AS city,
+  customer_state AS state
+FROM ${ref("raw_olist", "customers")}

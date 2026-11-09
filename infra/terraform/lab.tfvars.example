@@ -1,0 +1,4 @@
+# cp lab.tfvars.example lab.tfvars (no se versiona si lo nombras *.tfvars.local; este es solo ejemplo)
+project_id  = "de-lab-CAMBIAME"
+region      = "us-central1"
+github_repo = "tu-usuario/gcp-data-engineering-lab"

@@ -1,0 +1,57 @@
+# Bloques import: "adoptar" en Terraform lo que creaste a mano en los labs 01–06.
+# Uso (lab07): cp imports.tf.example imports.tf && terraform plan
+#   - El plan debe decir "X to import" y pocos o ningún "to destroy". Si ves un destroy, PARA y revisa.
+#   - Después del primer apply exitoso, BORRA imports.tf: los imports son de una sola vez.
+# Si saltaste algún lab, quita el bloque del recurso que no existe.
+
+import {
+  to = google_storage_bucket.landing
+  id = "${var.project_id}-landing"
+}
+import {
+  to = google_storage_bucket.archive
+  id = "${var.project_id}-archive"
+}
+import {
+  to = google_storage_bucket.temp
+  id = "${var.project_id}-temp"
+}
+
+import {
+  for_each = toset(["raw_olist", "raw_sellout", "staging", "marts", "ops", "dataform_assertions", "sandbox", "reporting"])
+  to       = google_bigquery_dataset.ds[each.value]
+  id       = "projects/${var.project_id}/datasets/${each.value}"
+}
+
+import {
+  for_each = {
+    sellout_lines    = "raw_sellout"
+    sellout_rejects  = "raw_sellout"
+    product_snapshot = "raw_sellout"
+    store_snapshot   = "raw_sellout"
+    control_figures  = "ops"
+  }
+  to = google_bigquery_table.raw[each.key]
+  id = "projects/${var.project_id}/datasets/${each.value}/tables/${each.key}"
+}
+
+import {
+  for_each = toset(["sa-generator", "sa-dataflow", "sa-dataform", "sa-composer"])
+  to       = google_service_account.sa[each.value]
+  id       = "projects/${var.project_id}/serviceAccounts/${each.value}@${var.project_id}.iam.gserviceaccount.com"
+}
+
+import {
+  to = google_artifact_registry_repository.images
+  id = "projects/${var.project_id}/locations/${var.region}/repositories/lab-images"
+}
+
+import {
+  to = google_secret_manager_secret.github_token
+  id = "projects/${var.project_id}/secrets/dataform-github-token"
+}
+
+import {
+  to = google_dataform_repository.sellout
+  id = "projects/${var.project_id}/locations/${var.region}/repositories/sellout-dataform"
+}

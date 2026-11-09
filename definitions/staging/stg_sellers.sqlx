@@ -1,0 +1,13 @@
+config {
+  type: "view",
+  tags: ["olist"],
+  description: "Vendedores del marketplace. Grano: seller.",
+  assertions: { uniqueKey: ["seller_id"] }
+}
+
+SELECT
+  seller_id,
+  seller_zip_code_prefix AS zip_prefix,
+  seller_city AS city,
+  seller_state AS state
+FROM ${ref("raw_olist", "sellers")}

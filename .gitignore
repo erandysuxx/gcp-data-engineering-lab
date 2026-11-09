@@ -1,0 +1,38 @@
+# Datos descargados y salidas locales
+data/
+out/
+*.jsonl
+!pipelines/sellout_beam/tests/fixtures/*.jsonl
+
+# Configuración local del alumno (nunca se versiona)
+.env.lab
+*.tfvars
+.claude/settings.local.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / Dataform
+node_modules/
+.df-credentials.json
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+
+# composer-dev (entorno local de Airflow)
+composer/
+
+# Credenciales: jamás
+*.json.key
+*-key.json
+credentials.json
+application_default_credentials.json
+out-beam/

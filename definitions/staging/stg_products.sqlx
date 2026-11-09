@@ -1,0 +1,14 @@
+config {
+  type: "view",
+  tags: ["olist", "daily"],
+  description: "Catálogo de Olist con la categoría traducida al inglés. Grano: producto.",
+  assertions: { uniqueKey: ["product_id"] }
+}
+
+SELECT
+  p.product_id,
+  p.product_category_name AS category,
+  COALESCE(t.product_category_name_english, p.product_category_name, "unknown") AS category_en,
+  p.product_weight_g AS weight_g
+FROM ${ref("raw_olist", "products")} AS p
+LEFT JOIN ${ref("raw_olist", "category_translation")} AS t USING (product_category_name)

@@ -1,0 +1,23 @@
+[project]
+name = "sellout-gen"
+version = "1.0.0"
+description = "Generador determinista de un feed diario de sell-out de retailers (datos sintéticos para el lab)"
+requires-python = ">=3.11,<3.12"
+dependencies = ["google-cloud-storage==3.17.1"]
+
+[dependency-groups]
+dev = ["pytest==9.2.0", "ruff==0.17.4"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["sellout_gen"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

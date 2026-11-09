@@ -1,0 +1,47 @@
+config {
+  type: "table",
+  schema: "marts",
+  tags: ["olist"],
+  description: "Accumulating snapshot del ciclo de entrega. GRANO: una orden. Una columna de fecha por hito.",
+  columns: {
+    order_id: "Orden (llave natural; una fila por orden)",
+    purchased_at: "Hito 1: compra", approved_at: "Hito 2: pago aprobado",
+    shipped_at: "Hito 3: entregado al transportista", delivered_at: "Hito 4: entregado al cliente",
+    estimated_delivery_date: "Fecha prometida al cliente",
+    lead_time_days: "Días de compra a entrega",
+    delay_days: "Días de entrega vs. promesa (negativo = antes)",
+    is_on_time: "Entregado a más tardar en la fecha prometida (aprox. a OTIF sin 'in full')",
+    item_count: "Ítems de la orden (agregado ANTES del join para no duplicar)",
+    order_value: "Valor de la orden: suma de price + flete",
+  },
+  bigquery: { partitionBy: "purchase_date" },
+  assertions: {
+    uniqueKey: ["order_id"],
+    rowConditions: ["delivered_at IS NULL OR delivered_at >= purchased_at"]
+  }
+}
+
+WITH items AS (
+  -- Se agrega ANTES de unir: así una orden sigue siendo una fila (sin fan-out).
+  SELECT order_id, COUNT(*) AS item_count, SUM(price + freight_value) AS order_value
+  FROM ${ref("stg_order_items")} GROUP BY order_id
+)
+SELECT
+  o.order_id,
+  DATE(o.purchased_at) AS purchase_date,
+  COALESCE(c.customer_sk, ${constants.UNKNOWN_SK}) AS customer_sk,
+  o.order_status,
+  o.purchased_at, o.approved_at, o.shipped_at, o.delivered_at, o.estimated_delivery_date,
+  TIMESTAMP_DIFF(o.approved_at, o.purchased_at, HOUR) AS hours_to_approve,
+  DATE_DIFF(DATE(o.shipped_at), DATE(o.purchased_at), DAY) AS days_to_ship,
+  DATE_DIFF(DATE(o.delivered_at), DATE(o.purchased_at), DAY) AS lead_time_days,
+  DATE_DIFF(DATE(o.delivered_at), o.estimated_delivery_date, DAY) AS delay_days,
+  o.delivered_at IS NOT NULL AS is_delivered,
+  -- "On time" (aproximación a OTIF sin la parte "in full"): entregado a más tardar la fecha prometida.
+  o.delivered_at IS NOT NULL AND DATE(o.delivered_at) <= o.estimated_delivery_date AS is_on_time,
+  i.item_count,
+  i.order_value
+FROM ${ref("stg_orders")} AS o
+LEFT JOIN items AS i USING (order_id)
+LEFT JOIN ${ref("stg_customers")} AS sc USING (customer_id)
+LEFT JOIN ${ref("dim_customer")} AS c ON c.customer_unique_id = sc.customer_unique_id

@@ -1,0 +1,20 @@
+config {
+  type: "incremental",
+  tags: ["daily"],
+  description: "Líneas de sell-out válidas y SIN duplicados. Grano: line_id. Incremental: procesa solo run_date.",
+  bigquery: { partitionBy: "sale_date", clusterBy: ["store_id", "product_id"] },
+  assertions: { uniqueKey: ["line_id"], nonNull: ["line_id", "store_id", "product_id", "sale_date"] }
+}
+
+pre_operations {
+  -- Idempotencia "borrar e insertar": si re-corres el mismo día, primero se borra su partición.
+  ${when(incremental(), `DELETE FROM ${self()} WHERE sale_date = DATE '${constants.RUN_DATE}'`)}
+}
+
+SELECT
+  line_id, retailer_id, store_id, product_id, sale_date, units, net_sales, currency, source_file
+FROM ${ref("raw_sellout", "sellout_lines")}
+-- Ventana CONSTANTE: poda particiones. (Un filtro con subconsulta, p. ej. >= (SELECT MAX(...)), NO poda.)
+WHERE sale_date ${when(incremental(), `= DATE '${constants.RUN_DATE}'`, `<= DATE '${constants.RUN_DATE}'`)}
+-- El retailer a veces reenvía la misma línea: nos quedamos con una.
+QUALIFY ROW_NUMBER() OVER (PARTITION BY line_id ORDER BY source_file) = 1

@@ -1,0 +1,10 @@
+# Configuración de Dataform. DEBE estar en la raíz del repo (lo exige el repositorio gestionado).
+# defaultProject se omite a propósito: Dataform usa el proyecto del repositorio gestionado
+# (o el de tus credenciales en la CLI), así el mismo código sirve en cualquier proyecto.
+defaultDataset: staging
+defaultAssertionDataset: dataform_assertions
+defaultLocation: us-central1
+dataformCoreVersion: 3.1.4
+vars:
+  # Fecha de negocio que procesa la corrida. Airflow la sobrescribe con {{ ds }}.
+  run_date: "2026-11-01"

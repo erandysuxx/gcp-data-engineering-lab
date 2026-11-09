@@ -1,0 +1,46 @@
+config {
+  type: "table",
+  schema: "marts",
+  tags: ["olist"],
+  description: "Hecho transaccional del canal e-commerce. GRANO: un ítem de una orden.",
+  columns: {
+    order_id: "Orden (llave natural, junto con order_item_id)",
+    order_item_id: "Posición del ítem dentro de la orden (1, 2, ...)",
+    date_key: "FK a dim_date (fecha de compra, AAAAMMDD)",
+    purchase_date: "Fecha de compra (columna de partición)",
+    product_sk: "FK a dim_product: la VERSIÓN vigente el día de la compra (join point-in-time)",
+    seller_sk: "FK a dim_seller (-1 = desconocido)",
+    customer_sk: "FK a dim_customer (-1 = desconocido)",
+    order_status: "Estado de la orden al momento de la carga",
+    price: "Precio del ítem (BRL)",
+    freight_value: "Flete asignado al ítem (BRL)",
+    item_total: "price + freight_value",
+  },
+  bigquery: { partitionBy: "purchase_date", clusterBy: ["product_sk", "seller_sk"] },
+  assertions: {
+    uniqueKey: ["order_id", "order_item_id"],
+    nonNull: ["product_sk", "seller_sk", "customer_sk", "date_key"]
+  }
+}
+
+SELECT
+  i.order_id,
+  i.order_item_id,
+  CAST(FORMAT_DATE("%Y%m%d", DATE(o.purchased_at)) AS INT64) AS date_key,
+  DATE(o.purchased_at) AS purchase_date,
+  -- Join "point-in-time": la versión del producto vigente el día de la compra.
+  COALESCE(p.product_sk, ${constants.UNKNOWN_SK}) AS product_sk,
+  COALESCE(s.seller_sk, ${constants.UNKNOWN_SK}) AS seller_sk,
+  COALESCE(c.customer_sk, ${constants.UNKNOWN_SK}) AS customer_sk,
+  o.order_status,
+  i.price,
+  i.freight_value,
+  i.price + i.freight_value AS item_total
+FROM ${ref("stg_order_items")} AS i
+JOIN ${ref("stg_orders")} AS o USING (order_id)
+LEFT JOIN ${ref("stg_customers")} AS sc USING (customer_id)
+LEFT JOIN ${ref("dim_customer")} AS c ON c.customer_unique_id = sc.customer_unique_id
+LEFT JOIN ${ref("dim_seller")} AS s ON s.seller_id = i.seller_id
+LEFT JOIN ${ref("dim_product")} AS p
+  ON p.product_id = i.product_id AND DATE(o.purchased_at) BETWEEN p.valid_from AND p.valid_to
+-- Nota: NO se unen los pagos aquí. Una orden con 2 pagos y 3 ítems daría 6 filas (fan-out) y sumas infladas.

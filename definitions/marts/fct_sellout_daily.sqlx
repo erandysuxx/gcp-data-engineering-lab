@@ -1,0 +1,39 @@
+config {
+  type: "incremental",
+  schema: "marts",
+  tags: ["daily"],
+  description: "Sell-out de retailers. GRANO: día x tienda x producto. Incremental por MERGE (uniqueKey).",
+  columns: {
+    sale_date: "Día de venta al consumidor final (partición)",
+    store_sk: "FK a dim_store (-1 = tienda desconocida)",
+    product_sk: "FK a dim_product: versión vigente ese día (join point-in-time al SCD2)",
+    units: "Unidades vendidas (sell-out), después de deduplicar líneas",
+    net_sales: "Venta neta reportada por el retailer (BRL, con descuentos)",
+    line_count: "Líneas del feed que se agregaron en esta fila",
+  },
+  uniqueKey: ["sale_date", "store_id", "product_id"],
+  bigquery: {
+    partitionBy: "sale_date",
+    clusterBy: ["store_sk", "product_sk"],
+    // Limita el MERGE a particiones recientes: sin esto, el MERGE leería toda la tabla destino.
+    updatePartitionFilter: "sale_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 400 DAY)"
+  },
+  assertions: { nonNull: ["store_sk", "product_sk", "date_key"], rowConditions: ["units > 0"] }
+}
+
+SELECT
+  l.sale_date,
+  CAST(FORMAT_DATE("%Y%m%d", l.sale_date) AS INT64) AS date_key,
+  l.store_id,
+  l.product_id,
+  COALESCE(st.store_sk, ${constants.UNKNOWN_SK}) AS store_sk,
+  COALESCE(p.product_sk, ${constants.UNKNOWN_SK}) AS product_sk,
+  SUM(l.units) AS units,
+  SUM(l.net_sales) AS net_sales,
+  COUNT(*) AS line_count
+FROM ${ref("stg_sellout_lines")} AS l
+LEFT JOIN ${ref("dim_store")} AS st ON st.store_id = l.store_id
+LEFT JOIN ${ref("dim_product")} AS p
+  ON p.product_id = l.product_id AND l.sale_date BETWEEN p.valid_from AND p.valid_to
+WHERE l.sale_date ${when(incremental(), `= DATE '${constants.RUN_DATE}'`, `<= DATE '${constants.RUN_DATE}'`)}
+GROUP BY 1, 2, 3, 4, 5, 6

@@ -1,0 +1,27 @@
+config {
+  type: "view",
+  tags: ["olist"],
+  description: "Órdenes del canal e-commerce (Olist), tipadas y con nombres claros. Grano: una fila por orden.",
+  columns: {
+    order_id: "Identificador de la orden (llave natural)",
+    customer_id: "Cliente de ESTA orden (Olist genera uno por orden; el cliente real es customer_unique_id)",
+    order_status: "Estado: delivered, shipped, canceled, ...",
+    purchased_at: "Momento de la compra",
+    approved_at: "Aprobación del pago",
+    shipped_at: "Entrega al transportista",
+    delivered_at: "Entrega al cliente",
+    estimated_delivery_date: "Fecha prometida al cliente",
+  },
+  assertions: { uniqueKey: ["order_id"], nonNull: ["order_id", "customer_id", "purchased_at"] }
+}
+
+SELECT
+  order_id,
+  customer_id,
+  order_status,
+  order_purchase_timestamp AS purchased_at,
+  order_approved_at AS approved_at,
+  order_delivered_carrier_date AS shipped_at,
+  order_delivered_customer_date AS delivered_at,
+  DATE(order_estimated_delivery_date) AS estimated_delivery_date
+FROM ${ref("raw_olist", "orders")}

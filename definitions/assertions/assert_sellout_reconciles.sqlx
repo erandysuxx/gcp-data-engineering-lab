@@ -1,0 +1,11 @@
+config {
+  type: "assertion",
+  tags: ["daily"],
+  description: "Cifra de control: las unidades del hecho cuadran con las líneas válidas deduplicadas del día."
+}
+
+WITH f AS (SELECT SUM(units) AS u FROM ${ref("fct_sellout_daily")} WHERE sale_date = DATE '${constants.RUN_DATE}'),
+     s AS (SELECT SUM(units) AS u FROM ${ref("stg_sellout_lines")} WHERE sale_date = DATE '${constants.RUN_DATE}')
+SELECT f.u AS fact_units, s.u AS staging_units
+FROM f, s
+WHERE COALESCE(f.u, 0) != COALESCE(s.u, 0)

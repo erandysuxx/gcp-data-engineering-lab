@@ -1,0 +1,37 @@
+[
+  {
+    "name": "order_id",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "order_item_id",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "product_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "seller_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "shipping_limit_date",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "price",
+    "type": "NUMERIC",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "freight_value",
+    "type": "NUMERIC",
+    "mode": "NULLABLE"
+  }
+]

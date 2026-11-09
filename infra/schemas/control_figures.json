@@ -1,0 +1,43 @@
+[
+  {
+    "name": "run_date",
+    "type": "DATE",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "pipeline",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "source_lines",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "valid_rows",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "rejected_rows",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "status",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "OK | MISMATCH"
+  },
+  {
+    "name": "dag_run_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "checked_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  }
+]

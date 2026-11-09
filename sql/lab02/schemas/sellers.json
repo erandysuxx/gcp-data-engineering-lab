@@ -1,0 +1,23 @@
+[
+  {
+    "name": "seller_id",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "seller_zip_code_prefix",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "STRING a propósito: conserva ceros a la izquierda"
+  },
+  {
+    "name": "seller_city",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "seller_state",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  }
+]

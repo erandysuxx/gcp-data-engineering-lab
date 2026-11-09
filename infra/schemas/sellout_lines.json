@@ -1,0 +1,48 @@
+[
+  {
+    "name": "line_id",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "retailer_id",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "store_id",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "product_id",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "sale_date",
+    "type": "DATE",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "units",
+    "type": "INT64",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "net_sales",
+    "type": "NUMERIC",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "currency",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "source_file",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Archivo de origen en GCS (trazabilidad)"
+  }
+]

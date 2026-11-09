@@ -1,0 +1,23 @@
+[project]
+name = "sellout-beam"
+version = "1.0.0"
+description = "Pipeline Apache Beam: valida el feed de sell-out y lo carga a BigQuery con dead-letter"
+requires-python = ">=3.11,<3.12"
+dependencies = ["apache-beam[gcp]==2.77.0"]
+
+[dependency-groups]
+dev = ["pytest==9.2.0", "ruff==0.17.4", "setuptools>=75", "build>=1.2"]  # setuptools/build: --setup_file empaqueta el código para los workers
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["sellout_beam"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

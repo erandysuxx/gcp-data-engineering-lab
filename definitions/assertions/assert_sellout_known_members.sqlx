@@ -1,0 +1,10 @@
+config {
+  type: "assertion",
+  tags: ["daily"],
+  description: "Todo el sell-out del día cae en tiendas y productos conocidos (sin miembro desconocido)."
+}
+
+SELECT sale_date, store_id, product_id, store_sk, product_sk
+FROM ${ref("fct_sellout_daily")}
+WHERE sale_date = DATE '${constants.RUN_DATE}'
+  AND (store_sk = ${constants.UNKNOWN_SK} OR product_sk = ${constants.UNKNOWN_SK})

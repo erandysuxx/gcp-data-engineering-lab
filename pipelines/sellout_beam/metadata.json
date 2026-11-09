@@ -1,0 +1,11 @@
+{
+  "name": "sellout-ingest",
+  "description": "Valida el feed diario de sell-out y lo carga a BigQuery (válidas + dead-letter) para la partición run_date.",
+  "parameters": [
+    {"name": "run_date", "label": "Fecha a procesar", "helpText": "YYYY-MM-DD", "regexes": ["^\\d{4}-\\d{2}-\\d{2}$"]},
+    {"name": "input_root", "label": "Raíz del feed", "helpText": "gs://BUCKET (contiene sellout/ y masters/)"},
+    {"name": "output_project", "label": "Proyecto de BigQuery", "helpText": "Proyecto donde vive raw_sellout"},
+    {"name": "output_dataset", "label": "Dataset", "helpText": "Por defecto raw_sellout", "isOptional": true},
+    {"name": "sink", "label": "Destino", "helpText": "bigquery (por defecto) o local", "isOptional": true}
+  ]
+}
