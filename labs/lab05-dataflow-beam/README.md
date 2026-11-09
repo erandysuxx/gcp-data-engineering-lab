@@ -69,7 +69,8 @@ bq query --nouse_legacy_sql "SELECT error_code, COUNT(*) FROM raw_sellout.sellou
 ### 6. Flex Template: el pipeline como "producto" que cualquiera lanza con parámetros
 Una **imagen** (launcher + tu código) y un **spec JSON** en GCS. Quien lo lanza (Airflow, tú, CI) no necesita tu código ni tu entorno de Python.
 ```bash
-gcloud builds submit pipelines/sellout_beam --tag "$IMAGE_PREFIX/sellout-beam:v1"   # construye en la nube (amd64)
+gcloud builds submit pipelines/sellout_beam --config pipelines/sellout_beam/cloudbuild.yaml \
+  --substitutions _IMAGE="$IMAGE_PREFIX/sellout-beam:v1" --region "$REGION"   # construye en la nube (amd64), ~10 min
 gcloud dataflow flex-template build "gs://$TEMP_BUCKET/templates/sellout_ingest.json" \
   --image "$IMAGE_PREFIX/sellout-beam:v1" --sdk-language PYTHON \
   --metadata-file pipelines/sellout_beam/metadata.json
@@ -83,7 +84,8 @@ for D in 2026-11-02 2026-11-03; do
 done
 gcloud dataflow jobs list --region "$REGION" --limit 5
 ```
-Si Cloud Build falla por permisos, revisa qué service account usa (`gcloud builds submit --help`) o construye en local con `docker buildx build --platform linux/amd64 ... --push`.
+- Se usa `--config cloudbuild.yaml` y no `--tag`: el builder que usa `--tag` falla con `invalid tar header` al leer la imagen base del launcher.
+- La imagen pesa ~2 GB (es la imagen del SDK de Beam). Construirla en tu laptop y subirla es lento: deja que la construya Cloud Build.
 
 ### 7. Idempotencia
 Lanza otra vez el Flex Template para `2026-11-02` y repite el conteo del paso 5 para ese día: **mismos números**.

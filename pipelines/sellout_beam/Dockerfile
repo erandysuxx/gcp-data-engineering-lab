@@ -1,7 +1,7 @@
 # Flex Template con imagen propia: la MISMA imagen lanza el job y corre en los workers
 # (patrón recomendado: https://docs.cloud.google.com/dataflow/docs/guides/templates/configuring-flex-templates).
 # Ambas bases van fijadas: nunca `latest`.
-FROM gcr.io/dataflow-templates-base/python311-template-launcher-base:20261104-rc00 AS template_launcher
+FROM gcr.io/dataflow-templates-base/python311-template-launcher-base:20261026-rc00 AS template_launcher
 
 FROM apache/beam_python3.11_sdk:2.77.0
 COPY --from=template_launcher /opt/google/dataflow/python_template_launcher /opt/google/dataflow/python_template_launcher

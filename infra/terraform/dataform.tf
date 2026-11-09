@@ -31,8 +31,10 @@ resource "google_secret_manager_secret_iam_member" "dataform_agent_token" {
   member    = local.dataform_agent
 }
 
-resource "google_service_account_iam_member" "dataform_agent_token_creator" {
+# Strict act-as: el agente necesita AMBOS roles sobre la SA que ejecuta (token creator + actAs).
+resource "google_service_account_iam_member" "dataform_agent_on_sa" {
+  for_each           = toset(["roles/iam.serviceAccountTokenCreator", "roles/iam.serviceAccountUser"])
   service_account_id = google_service_account.sa["sa-dataform"].name
-  role               = "roles/iam.serviceAccountTokenCreator"
+  role               = each.value
   member             = local.dataform_agent
 }

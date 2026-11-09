@@ -18,6 +18,15 @@ echo "invocación: $INV_NAME"
 for _ in $(seq 1 60); do
   STATE=$(curl -sf -H "$AUTH" "https://dataform.googleapis.com/v1/$INV_NAME" | python3 -c "import json,sys;print(json.load(sys.stdin)['state'])")
   echo "  estado: $STATE"
-  case "$STATE" in SUCCEEDED) exit 0;; FAILED|CANCELLED) exit 1;; esac
+  case "$STATE" in
+    SUCCEEDED) exit 0;;
+    FAILED|CANCELLED)   # muestra qué acción falló y por qué
+      curl -sf -H "$AUTH" "https://dataform.googleapis.com/v1/${INV_NAME}:query?pageSize=200" | python3 -c "
+import json,sys
+for a in json.load(sys.stdin).get('workflowInvocationActions',[]):
+    if a.get('state')=='FAILED':
+        t=a.get('target',{}); print('  FALLÓ', t.get('schema'), t.get('name'), '→', (a.get('failureReason') or '')[:300])"
+      exit 1;;
+  esac
   sleep 10
 done

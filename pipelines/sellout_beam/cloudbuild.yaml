@@ -1,0 +1,17 @@
+# Build de la imagen del Flex Template en Cloud Build con kaniko (construye SIN daemon de Docker).
+# El daemon de Docker de Cloud Build falla al leer las capas de las imágenes base
+# ("archive/tar: invalid tar header"); kaniko las procesa por su cuenta.
+# Uso: gcloud builds submit pipelines/sellout_beam --config pipelines/sellout_beam/cloudbuild.yaml \
+#        --substitutions _IMAGE="$IMAGE_PREFIX/sellout-beam:v1" --region "$REGION"
+steps:
+  - name: gcr.io/kaniko-project/executor:v1.24.0
+    args:
+      - --destination=${_IMAGE}
+      - --context=dir:///workspace
+      - --dockerfile=Dockerfile
+      - --snapshot-mode=redo
+      - --compressed-caching=false
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+timeout: 1800s
