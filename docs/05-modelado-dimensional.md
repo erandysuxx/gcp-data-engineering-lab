@@ -125,44 +125,40 @@ Una **SCD** (slowly changing dimension, dimensión de cambio lento) define qué 
 |---|---|---|
 | Qué hace | Sobrescribe | Cierra la versión vigente e inserta una nueva |
 | Historia | No | Sí |
-| En el lab | `dim_store` (formato de tienda) | `dim_product` (precio de lista, categoría) |
+| En el lab | `dim_store` (formato de tienda) | `dim_product` (precio de lista y marca) |
 | Columnas extra | ninguna | `valid_from`, `valid_to`, `is_current`, `row_hash` |
 
-Convención del lab: intervalo semiabierto `[valid_from, valid_to)`. La versión vigente tiene `valid_to = DATE '9999-12-31'` e `is_current = TRUE`. `row_hash` resume los atributos rastreados para detectar cambios con una sola comparación. `TO_JSON_STRING` convierte los `NULL` en texto y evita que `NULL != NULL` oculte cambios.
+Convención del lab: intervalo **cerrado** `[valid_from, valid_to]`. La versión vigente tiene `valid_to = DATE '9999-12-31'` e `is_current = TRUE`. Al cerrar una versión, su `valid_to` es el **día anterior** al `valid_from` de la siguiente; el join usa `BETWEEN`. `row_hash` resume los atributos rastreados para detectar cambios con una sola comparación. `TO_JSON_STRING` convierte los `NULL` en texto y evita que `NULL != NULL` oculte cambios.
 
-**El MERGE de SCD2 en BigQuery** usa el patrón de dos ramas: la fuente se duplica con `UNION ALL`. La rama A trae la llave natural y cierra versiones. La rama B trae llave **nula**, que nunca hace match, y fuerza el `INSERT` de la versión nueva.
+**Dos formas de construir una SCD2:**
+
+| | Reconstruir desde el historial (la del lab) | MERGE incremental |
+|---|---|---|
+| Qué hace | Cada corrida recalcula todas las versiones a partir de **todos** los snapshots guardados | Compara "lo que llegó hoy" con "lo vigente" y cierra o inserta |
+| Orden de proceso | **No importa**: backfills, re-procesos y corridas simultáneas dan la misma tabla | **Importa**: procesar una fecha vieja después de una nueva corrompe la historia |
+| Costo | Lee todo el historial de snapshots en cada corrida | Lee solo el snapshot del día |
+| Cuándo | Dimensiones chicas o medianas (miles a pocos millones de filas) | Dimensiones enormes, con el orden de carga garantizado |
+
+**La versión del lab** ([`definitions/marts/dim_product.sqlx`](../definitions/marts/dim_product.sqlx)) usa funciones de ventana:
 
 ```sql
--- definitions/marts/dim_product_scd2.sqlx → config { type: "operations", hasOutput: true }
-MERGE marts.dim_product AS t
-USING (
-  WITH src AS (
-    SELECT product_id, category, list_price, snapshot_date,
-           TO_HEX(SHA256(TO_JSON_STRING(STRUCT(category, list_price)))) AS row_hash
-    FROM staging.stg_product_snapshot
-    WHERE snapshot_date = DATE '2026-11-09'          -- run_date
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY snapshot_date DESC) = 1
-  )
-  SELECT product_id AS merge_key, src.* FROM src                  -- rama A
-  UNION ALL
-  SELECT CAST(NULL AS STRING) AS merge_key, src.*                 -- rama B
-  FROM src
-  JOIN marts.dim_product d ON d.product_id = src.product_id AND d.is_current
-  WHERE d.row_hash != src.row_hash
-) AS s
-ON t.product_id = s.merge_key AND t.is_current
-WHEN MATCHED AND t.row_hash != s.row_hash THEN
-  UPDATE SET valid_to = s.snapshot_date, is_current = FALSE
-WHEN NOT MATCHED THEN
-  INSERT (product_sk, product_id, category, list_price, valid_from, valid_to, is_current, row_hash)
-  VALUES (FARM_FINGERPRINT(CONCAT(s.product_id, '|', CAST(s.snapshot_date AS STRING))),
-          s.product_id, s.category, s.list_price,
-          s.snapshot_date, DATE '9999-12-31', TRUE, s.row_hash)
+-- 1) hash de los atributos versionados en cada snapshot
+-- 2) LAG(row_hash): un snapshot abre versión si es el primero del producto o si el hash cambió
+-- 3) valid_from = fecha del snapshot (la 1ª versión arranca en 1900-01-01: cubre el pasado)
+-- 4) valid_to   = LEAD(valid_from) - 1 día, o 9999-12-31 si es la vigente
+SELECT product_id, brand, list_price,
+       IF(rn = 1, DATE '1900-01-01', snapshot_date) AS valid_from,
+       COALESCE(DATE_SUB(LEAD(...) OVER (PARTITION BY product_id ORDER BY ...), INTERVAL 1 DAY),
+                DATE '9999-12-31') AS valid_to
+FROM changes
+WHERE prev_hash IS NULL OR prev_hash != row_hash
 ```
 
-Producto **sin cambio**: la rama A hace match con el mismo hash y no pasa nada. Producto **que cambió**: la rama A cierra la versión vigente y la rama B inserta la nueva. Producto **nuevo**: la rama A no hace match e inserta.
-
-**Es idempotente**: en la segunda corrida del mismo día, la versión vigente ya tiene el hash nuevo y ninguna rama produce cambios. El `QUALIFY` evita el error de MERGE "una fila destino coincide con varias filas fuente".
+**El MERGE incremental** (patrón de dos ramas) está completo y comentado en [`docs/snippets/scd2_merge_incremental.sql`](snippets/scd2_merge_incremental.sql). El lab lo usó primero y funcionó procesando los días en orden. Se cambió porque un backfill en Airflow 3 no garantiza el orden (ver "En la práctica"):
+- La fuente se duplica con `UNION ALL`.
+- La rama A trae la llave natural: cierra la versión vigente si el hash cambió e inserta los productos nuevos.
+- La rama B trae llave **nula**: nunca hace match y fuerza el `INSERT` de la versión nueva.
+- Re-correr el **mismo** día no cambia nada (es idempotente). Re-correr un día **viejo** sí rompe la historia.
 
 ### 8. Join point-in-time contra la SCD2
 
@@ -173,8 +169,7 @@ SELECT l.sale_date, l.store_id, l.units, COALESCE(p.product_sk, -1) AS product_s
 FROM ${ref("stg_sellout_lines")} AS l
 LEFT JOIN ${ref("dim_product")} AS p
   ON  p.product_id = l.product_id
-  AND l.sale_date >= p.valid_from
-  AND l.sale_date <  p.valid_to
+  AND l.sale_date BETWEEN p.valid_from AND p.valid_to   -- intervalo cerrado (convención del lab)
 ```
 
 Si el join usa `is_current = TRUE`, las ventas de 2025 aparecen con la categoría de hoy. Ese es el error que SCD2 existe para evitar.
@@ -204,7 +199,7 @@ Las estrellas siguen siendo necesarias: son la fuente de verdad con el grano dec
 | `table` | `CREATE OR REPLACE TABLE` en cada corrida | `dim_store`, `fct_deliveries` |
 | `incremental` | Se crea una vez; después inserta o hace MERGE | `fct_sellout_daily` |
 | `view` | Vista | `stg_*` livianos |
-| `operations` | SQL arbitrario (MERGE, DDL) | `dim_product_scd2` |
+| `operations` | SQL arbitrario (MERGE, DDL) | el SCD2 incremental de `docs/snippets/` |
 | `assertion` | Consulta que debe devolver 0 filas | Reglas de calidad propias |
 | `declaration` | Registra una tabla que Dataform no crea | `raw_sellout.sellout_lines` |
 
@@ -304,7 +299,7 @@ erDiagram
 - **Cifras de control en cada capa.** Por día: filas en la fuente (manifiesto), en raw, en rechazos y en staging. Fuente = raw + rechazos; raw − duplicados = staging. Se guardan en `ops.control_figures`. Un modelo elegante con conteos que no cuadran no sirve.
 - **Restatements de retailers.** Un retailer reenvía días pasados corregidos. Con `uniqueKey` el MERGE actualiza filas, pero **no borra** las que desaparecieron del reenvío. Si eso importa, borra e inserta la partición: `pre_operations` con `${when(incremental(), "DELETE FROM ... WHERE sale_date = ...")}`.
 - **Los filtros de partición con subconsulta no podan.** `WHERE sale_date = (SELECT MAX(sale_date) FROM ...)` lee todas las particiones, porque BigQuery solo poda con expresiones constantes. Usa la variable de compilación o un `DECLARE` en `pre_operations` y filtra con esa variable.
-- **La SCD2 exige orden.** Procesar el 9 de noviembre antes que el 8 deja intervalos incorrectos. El backfill de dimensiones va en orden cronológico y con una corrida a la vez.
+- **Una SCD2 incremental exige orden; una reconstruida, no.** Con MERGE, procesar el 9 de noviembre antes que el 8 deja intervalos incorrectos. En Airflow 3 eso pasa sin querer: un backfill y las corridas programadas tienen límites de concurrencia separados, y despausar un DAG crea al instante la corrida del último horario. Por eso el lab reconstruye la SCD2 desde el historial de snapshots. Si usas MERGE, fuerza el orden con `depends_on_past=True` y `--max-active-runs 1`.
 
 ## Errores comunes
 

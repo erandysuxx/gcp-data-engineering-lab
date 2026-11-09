@@ -63,7 +63,7 @@ with DAG(
     schedule="0 6 * * *",  # 06:00 UTC. En Airflow 3 la fecha lógica ({{ ds }}) es la del disparo
     start_date=datetime(2026, 11, 1),
     catchup=False,  # default en Airflow 3; los históricos se cargan con `airflow backfill create`
-    max_active_runs=1,  # el SCD2 de productos exige procesar las fechas EN ORDEN
+    max_active_runs=1,  # una corrida a la vez: dos invocaciones de Dataform no escriben las mismas tablas
     dagrun_timeout=timedelta(hours=2),
     default_args={
         "owner": "data-eng",

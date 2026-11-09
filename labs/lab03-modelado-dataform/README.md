@@ -2,7 +2,7 @@
 
 **Objetivo:** construir con SQL versionado (Dataform) la estrella del lab:
 - dimensiones con miembro desconocido;
-- un **SCD2 con MERGE**;
+- un **SCD2** reconstruido desde el historial (y su alternativa incremental con MERGE, para comparar);
 - un hecho transaccional, un *accumulating snapshot* y un hecho incremental;
 - **assertions** de calidad y descripciones de columnas que llegan a BigQuery.
 
@@ -25,7 +25,7 @@ erDiagram
 | `fct_order_items` | transaccional | ítem de orden | join point-in-time a SCD2; por qué no se unen los pagos (fan-out) |
 | `fct_deliveries` | accumulating snapshot | orden | una columna por hito, lead time, on-time |
 | `fct_sellout_daily` | incremental (MERGE) | día × tienda × producto | `uniqueKey` + `updatePartitionFilter` |
-| `dim_product` | SCD2 (operations + MERGE) | versión de producto | historia de precio y marca |
+| `dim_product` | SCD2 reconstruida con `LAG`/`LEAD` | versión de producto | historia de precio y marca; independiente del orden |
 | `dim_store`, `dim_customer`, `dim_seller` | SCD1 | entidad | miembro desconocido `-1` |
 | `stg_sellout_lines` | incremental (delete+insert) | `line_id` | dedup con `QUALIFY` e idempotencia por partición |
 
@@ -49,14 +49,20 @@ npx --yes @dataform/cli@3.1.4 compile                        # sin errores = el 
 npx --yes @dataform/cli@3.1.4 compile --json | python3 -c "import json,sys;d=json.load(sys.stdin);print(len(d['tables']),'tablas', len(d['assertions']),'assertions')"
 ```
 
-### 3. SCD2: tres días de maestros, en orden
+### 3. SCD2: tres días de maestros
 ```bash
 labs/lab03-modelado-dataform/scd2_demo.sh 2026-11-01 2026-11-02 2026-11-03
 ```
 Resultado esperado:
 - 2026-11-01: todo nace con `valid_from = 1900-01-01`.
 - 2026-11-02 (lunes): ~34 productos cambian de precio o marca y nace una versión nueva.
-- 2026-11-03: **0 cambios** (re-correr no crea versiones: el MERGE es idempotente).
+- 2026-11-03: **0 cambios** (re-correr no crea versiones).
+
+**Prueba el desorden.** Vuelve a correr un día viejo:
+```bash
+labs/lab03-modelado-dataform/scd2_demo.sh 2026-11-02
+```
+La tabla queda **idéntica**: `dim_product` se reconstruye desde *todos* los snapshots, así que el orden no importa. Ahora lee [`docs/snippets/scd2_merge_incremental.sql`](../../docs/snippets/scd2_merge_incremental.sql): con ese MERGE, este mismo paso habría corrompido la historia. Esa diferencia es una buena pregunta de entrevista.
 
 Mira un producto con historia:
 ```bash
@@ -120,6 +126,6 @@ Nada: los marts se usan en los labs siguientes. Las vistas no cuestan; las tabla
 ## Preguntas
 1. ¿Cuál es el grano de `fct_deliveries` y por qué es un accumulating snapshot?
 2. ¿Por qué la primera versión de cada producto tiene `valid_from = 1900-01-01`?
-3. ¿Qué pasaría si procesas el 2026-11-02 **después** del 2026-11-03? ¿Cómo lo evita el DAG del lab06?
+3. ¿Qué pasaría con un SCD2 **incremental (MERGE)** si procesas el 2026-11-02 **después** del 2026-11-03? ¿Por qué la versión reconstruida no tiene ese problema y cuál es su costo?
 4. ¿Por qué `stg_sellout_lines` y `fct_sellout_daily` usan estrategias incrementales distintas (delete+insert vs MERGE)?
 5. (EN) *What is a conformed dimension? Give an example from this lab.*

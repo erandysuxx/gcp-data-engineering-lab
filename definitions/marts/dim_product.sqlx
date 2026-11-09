@@ -1,0 +1,60 @@
+config {
+  type: "table",
+  schema: "marts",
+  tags: ["olist", "daily"],
+  description: "Productos con historia (SCD tipo 2) RECONSTRUIDA desde el historial de snapshots. Grano: una fila por versión.",
+  bigquery: { clusterBy: ["product_id"] },
+  columns: {
+    product_sk: "Llave surrogate de la VERSIÓN: hash(product_id | valid_from), estable entre reconstrucciones",
+    product_id: "Llave natural (la del sistema fuente)",
+    brand: "Marca vigente en esa versión (solo productos vendidos en retail)",
+    list_price: "Precio de lista vigente en esa versión",
+    valid_from: "Primer día de vigencia (1900-01-01 = primera versión conocida)",
+    valid_to: "Último día de vigencia, inclusive (9999-12-31 = vigente). Join: fecha BETWEEN valid_from AND valid_to",
+    is_current: "TRUE solo en la versión vigente",
+    row_hash: "Hash de los atributos versionados (marca y precio): si cambia, nace una versión nueva",
+  },
+  assertions: { uniqueKey: ["product_sk"], nonNull: ["product_sk", "product_id", "valid_from", "valid_to"] }
+}
+
+-- Por qué reconstruir y no MERGE: el resultado depende SOLO del historial de snapshots, no del orden en que
+-- se procesan las fechas. Un backfill, un re-proceso de un día viejo o dos corridas a la vez dan la misma tabla.
+-- (El patrón incremental con MERGE está en docs/snippets/scd2_merge_incremental.sql, con sus límites.)
+
+WITH snap AS (
+  SELECT product_id, snapshot_date, brand, CAST(list_price AS NUMERIC) AS list_price,
+         FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(brand, CAST(list_price AS NUMERIC)))) AS row_hash
+  FROM ${ref("raw_sellout", "product_snapshot")}
+),
+changes AS (  -- un snapshot inicia versión si es el primero del producto o si su hash cambió vs. el día anterior
+  SELECT *,
+         LAG(row_hash) OVER (PARTITION BY product_id ORDER BY snapshot_date) AS prev_hash,
+         ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY snapshot_date) AS rn
+  FROM snap
+),
+versions AS (
+  SELECT product_id, brand, list_price, row_hash,
+         IF(rn = 1, DATE '${constants.SCD_OPEN_FROM}', snapshot_date) AS valid_from  -- la 1ª versión cubre el pasado
+  FROM changes
+  WHERE prev_hash IS NULL OR prev_hash != row_hash
+),
+retail AS (
+  SELECT *,
+         COALESCE(DATE_SUB(LEAD(valid_from) OVER (PARTITION BY product_id ORDER BY valid_from), INTERVAL 1 DAY),
+                  DATE '${constants.SCD_OPEN_TO}') AS valid_to
+  FROM versions
+)
+SELECT
+  FARM_FINGERPRINT(CONCAT(p.product_id, "|",
+    CAST(COALESCE(r.valid_from, DATE '${constants.SCD_OPEN_FROM}') AS STRING))) AS product_sk,
+  p.product_id, p.category, p.category_en, p.weight_g,
+  r.brand, r.list_price, r.row_hash,
+  COALESCE(r.valid_from, DATE '${constants.SCD_OPEN_FROM}') AS valid_from,
+  COALESCE(r.valid_to, DATE '${constants.SCD_OPEN_TO}') AS valid_to,
+  COALESCE(r.valid_to, DATE '${constants.SCD_OPEN_TO}') = DATE '${constants.SCD_OPEN_TO}' AS is_current
+FROM ${ref("stg_products")} AS p          -- todo el catálogo de Olist (los no-retail tienen 1 sola versión)
+LEFT JOIN retail AS r USING (product_id)
+UNION ALL
+-- Miembro desconocido: los hechos con un producto que no conocemos apuntan aquí en vez de quedar NULL.
+SELECT ${constants.UNKNOWN_SK}, "unknown", "unknown", "unknown", NULL, NULL, NULL, 0,
+       DATE '${constants.SCD_OPEN_FROM}', DATE '${constants.SCD_OPEN_TO}', TRUE
